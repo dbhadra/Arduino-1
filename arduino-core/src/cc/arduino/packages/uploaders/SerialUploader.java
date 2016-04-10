@@ -44,6 +44,8 @@ import processing.app.helpers.OSUtils;
 import processing.app.helpers.PreferencesMap;
 import processing.app.helpers.StringReplacer;
 
+import cc.arduino.packages.discoverers.SerialDiscovery;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -78,11 +80,18 @@ public class SerialUploader extends Uploader {
     }
     prefs.putAll(targetPlatform.getTool(tool));
 
+    if (programmerPid != null && programmerPid.isAlive()) {
+      // kill the previous programmer
+      programmerPid.destroyForcibly();
+    }
+
     // if no protocol is specified for this board, assume it lacks a 
     // bootloader and upload using the selected programmer.
     if (usingProgrammer || prefs.get("upload.protocol") == null) {
       return uploadUsingProgrammer(buildPath, className);
     }
+
+    BaseNoGui.getDiscoveryManager().getSerialDiscoverer().pausePolling(true);
 
     if (noUploadPort)
     {
@@ -100,6 +109,8 @@ public class SerialUploader extends Uploader {
         uploadResult = executeUploadCommand(cmd);
       } catch (Exception e) {
         throw new RunnerException(e);
+      } finally {
+        BaseNoGui.getDiscoveryManager().getSerialDiscoverer().pausePolling(false);
       }
       return uploadResult;
     }
@@ -134,13 +145,20 @@ public class SerialUploader extends Uploader {
           // Scanning for available ports seems to open the port or
           // otherwise assert DTR, which would cancel the WDT reset if
           // it happened within 250 ms. So we wait until the reset should
-          // have already occured before we start scanning.
+          // have already occurred before we start scanning.
           actualUploadPort = waitForUploadPort(userSelectedUploadPort, before);
+
+    	  // on OS X, if the port is opened too quickly after it is detected,
+    	  // a "Resource busy" error occurs, add a delay to workaround this,
+          // apply to other platforms as well.
+    	  Thread.sleep(250);
         }
       } catch (SerialException e) {
         throw new RunnerException(e);
       } catch (InterruptedException e) {
         throw new RunnerException(e.getMessage());
+      } finally {
+        BaseNoGui.getDiscoveryManager().getSerialDiscoverer().pausePolling(false);
       }
       if (actualUploadPort == null) {
         actualUploadPort = userSelectedUploadPort;
@@ -151,6 +169,12 @@ public class SerialUploader extends Uploader {
       } else {
         prefs.put("serial.port.file", actualUploadPort);
       }
+
+      // retrigger a discovery
+      BaseNoGui.getDiscoveryManager().getSerialDiscoverer().setUploadInProgress(true);
+      Thread.sleep(100);
+      BaseNoGui.getDiscoveryManager().getSerialDiscoverer().forceRefresh();
+      Thread.sleep(100);
     }
 
     BoardPort boardPort = BaseNoGui.getDiscoveryManager().find(PreferencesData.get("serial.port"));
@@ -177,7 +201,12 @@ public class SerialUploader extends Uploader {
       throw e;
     } catch (Exception e) {
       throw new RunnerException(e);
+    } finally {
+      BaseNoGui.getDiscoveryManager().getSerialDiscoverer().pausePolling(false);
     }
+
+    BaseNoGui.getDiscoveryManager().getSerialDiscoverer().setUploadInProgress(false);
+    BaseNoGui.getDiscoveryManager().getSerialDiscoverer().pausePolling(false);
 
     String finalUploadPort = null;
     if (uploadResult && doTouch) {
@@ -191,10 +220,7 @@ public class SerialUploader extends Uploader {
           long started = System.currentTimeMillis();
           while (System.currentTimeMillis() - started < 2000) {
             List<String> portList = Serial.list();
-            if (portList.contains(actualUploadPort)) {
-              finalUploadPort = actualUploadPort;
-              break;
-            } else if (portList.contains(userSelectedUploadPort)) {
+            if (portList.contains(userSelectedUploadPort)) {
               finalUploadPort = userSelectedUploadPort;
               break;
             }
@@ -213,6 +239,7 @@ public class SerialUploader extends Uploader {
       finalUploadPort = userSelectedUploadPort;
     }
     BaseNoGui.selectSerialPort(finalUploadPort);
+
     return uploadResult;
   }
 
@@ -247,11 +274,10 @@ public class SerialUploader extends Uploader {
       Thread.sleep(250);
       elapsed += 250;
 
-      // On Windows, it can take a long time for the port to disappear and
-      // come back, so use a longer time out before assuming that the
-      // selected
-      // port is the bootloader (not the sketch).
-      if (((!OSUtils.isWindows() && elapsed >= 500) || elapsed >= 5000) && now.contains(uploadPort)) {
+      // On Windows and OS X, it can take a few seconds for the port to disappear and
+      // come back, so use a time out before assuming that the selected port is the
+      // bootloader (not the sketch).
+      if (elapsed >= 5000 && now.contains(uploadPort)) {
         if (verbose)
           System.out.println("Uploading using selected port: " + uploadPort);
         return uploadPort;
