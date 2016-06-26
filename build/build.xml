@@ -217,7 +217,7 @@
     <download-library name="Robot_Motor" version="1.0.2"/>
     <download-library name="RobotIRremote" version="1.0.2"/>
     <download-library name="SpacebrewYun" version="1.0.0"/>
-    <download-library name="Temboo" version="1.1.5"/>
+    <download-library name="Temboo" version="1.1.6"/>
     <download-library name="Esplora" version="1.0.4"/>
     <download-library name="Mouse" version="1.0.1"/>
     <download-library name="Keyboard" version="1.0.1"/>
@@ -269,7 +269,7 @@
       <filterchain>
         <tokenfilter>
           <linetokenizer />
-          <containsregex pattern="archiveFileName.*avr-.......?tar.bz2"/>
+          <containsregex pattern="archiveFileName.*&quot;avr-.......?tar.bz2"/>
           <replaceregex pattern=".*avr-(.*).tar.bz2.*" flags="g" replace="\1"/>
         </tokenfilter>
         <tailfilter lines="1"/>
