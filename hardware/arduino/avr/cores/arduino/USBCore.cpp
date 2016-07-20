@@ -255,7 +255,9 @@ u8 USB_SendSpace(u8 ep)
 	LockEP lock(ep);
 	if (!ReadWriteAllowed())
 		return 0;
-	return USB_EP_SIZE - FifoByteCount();
+	// subtract 1 from the EP size to never send a full packet,
+	// this avoids dealing with ZLP's in USB_Send
+	return USB_EP_SIZE - 1 - FifoByteCount();
 }
 
 //	Blocking Send of data to an endpoint
@@ -731,7 +733,7 @@ static inline void USB_ClockEnable()
 ISR(USB_GEN_vect)
 {
 	u8 udint = UDINT;
-	UDINT = UDINT &= ~((1<<EORSTI) | (1<<SOFI)); // clear the IRQ flags for the IRQs which are handled here, except WAKEUPI and SUSPI (see below)
+	UDINT &= ~((1<<EORSTI) | (1<<SOFI)); // clear the IRQ flags for the IRQs which are handled here, except WAKEUPI and SUSPI (see below)
 
 	//	End of Reset
 	if (udint & (1<<EORSTI))
